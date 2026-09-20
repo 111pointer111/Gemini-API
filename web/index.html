@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#111218" />
-    <title>Gemini Canvas</title>
+    <meta name="theme-color" content="#0a0c0c" />
+    <title>Gemini Atelier</title>
     <link rel="icon" href="/assets/favicon.png" />
     <link rel="stylesheet" href="/static/styles.css" />
   </head>
@@ -12,31 +12,42 @@
     <main class="app-shell">
       <aside class="sidebar" aria-label="应用导航">
         <div class="brand-block">
-          <div class="brand-mark" aria-hidden="true">✦</div>
+          <div class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span><span></span>
+          </div>
           <div>
-            <p class="eyebrow">LOCAL GEMINI</p>
-            <h1>Canvas</h1>
+            <h1>Atelier</h1>
+            <p>Gemini media studio</p>
           </div>
         </div>
 
-        <nav class="mode-nav" aria-label="功能选择">
+        <nav class="mode-nav" aria-label="工作区">
           <button class="mode-button is-active" data-mode="chat" type="button">
-            <span>01</span>
-            <strong>对话</strong>
-            <small>连续上下文</small>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5.5h14v10H9l-4 3v-13Z" /></svg>
+            <span>对话</span>
           </button>
           <button class="mode-button" data-mode="image" type="button">
-            <span>02</span>
-            <strong>生成图片</strong>
-            <small>Gemini Web</small>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 5h15v14h-15zM7 16l3.5-4 2.5 2.5 2-2 2.5 3.5M15.7 8.4h.1" /></svg>
+            <span>图片</span>
+          </button>
+          <button class="mode-button" data-mode="video" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6h11v12h-11zM15.5 10l4-2v8l-4-2" /></svg>
+            <span>视频</span>
+          </button>
+          <button class="mode-button" data-mode="audio" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17V7l9-2v10M9 17c0 1.1-1.1 2-2.5 2S4 18.1 4 17s1.1-2 2.5-2S9 15.9 9 17Zm9-2c0 1.1-1.1 2-2.5 2S13 16.1 13 15s1.1-2 2.5-2 2.5.9 2.5 2Z" /></svg>
+            <span>音频</span>
+          </button>
+          <button class="mode-button" data-mode="library" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 6.5h15v13h-15zM7.5 4.5h9M8 10h8M8 14h5" /></svg>
+            <span>资源库</span>
           </button>
         </nav>
 
         <div class="sidebar-footer">
-          <label for="model-select">当前模型</label>
+          <label for="model-select">生成模型</label>
           <select id="model-select" aria-label="选择模型">
             <option value="gemini-pro">Gemini Pro</option>
-            <option value="gemini-flash">Gemini Flash</option>
           </select>
           <div class="connection-row">
             <span class="status-dot" id="status-dot"></span>
@@ -51,68 +62,154 @@
             <p class="eyebrow" id="view-eyebrow">CONVERSATION</p>
             <h2 id="view-title">和 Gemini 对话</h2>
           </div>
-          <button class="quiet-button" id="reset-chat" type="button">新对话</button>
+          <div class="header-actions">
+            <span class="privacy-note"><i></i> 仅保存在本机</span>
+            <button class="quiet-button" id="reset-chat" type="button">新对话</button>
+          </div>
         </header>
 
         <section class="view is-active" id="chat-view" aria-label="对话工作区">
           <div class="conversation" id="conversation" aria-live="polite">
             <div class="intro-copy" id="chat-intro">
-              <span class="intro-star" aria-hidden="true">✦</span>
-              <h3>现在可以开始了</h3>
-              <p>浏览器登录态留在本机，请求通过已配置的代理发送。</p>
+              <span class="intro-mark" aria-hidden="true">✦</span>
+              <h3>从一个问题开始</h3>
+              <p>保留上下文的本地对话，请求通过你配置的代理发送。</p>
+              <div class="starter-list">
+                <button type="button" data-starter="帮我构思一组电影感的雨夜城市摄影提示词">构思视觉提示词</button>
+                <button type="button" data-starter="把我的想法整理成一个可执行的创作方案">整理创作方案</button>
+              </div>
             </div>
           </div>
 
-          <form class="composer" id="chat-form">
+          <form class="chat-composer" id="chat-form">
             <label class="sr-only" for="chat-input">输入消息</label>
-            <textarea
-              id="chat-input"
-              rows="1"
-              maxlength="12000"
-              placeholder="输入问题，按 Enter 发送…"
-              required
-            ></textarea>
-            <button class="send-button" type="submit" aria-label="发送消息">
-              <span>发送</span>
-              <svg viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M5 12h13M13 6l6 6-6 6" />
-              </svg>
-            </button>
+            <textarea id="chat-input" rows="1" maxlength="12000" placeholder="输入消息…" required></textarea>
+            <div class="composer-foot">
+              <span>Enter 发送 · Shift Enter 换行</span>
+              <button class="primary-button icon-button" type="submit" aria-label="发送消息">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6" /></svg>
+              </button>
+            </div>
           </form>
         </section>
 
-        <section class="view" id="image-view" aria-label="图片生成工作区">
-          <div class="image-stage">
-            <div class="image-prompt-block">
-              <p class="section-index">IMAGE / PROMPT</p>
-              <h3>描述你想看到的画面</h3>
-              <form id="image-form">
-                <label class="sr-only" for="image-input">图片描述</label>
-                <textarea
-                  id="image-input"
-                  maxlength="4000"
-                  placeholder="例如：雨夜里的上海街巷，电影感灯光，蓝紫色霓虹…"
-                  required
-                ></textarea>
-                <button class="generate-button" type="submit">
-                  <span>生成图片</span>
-                  <span aria-hidden="true">✦</span>
-                </button>
-              </form>
+        <section class="view" id="studio-view" aria-label="媒体生成工作区">
+          <div class="studio-main">
+            <div class="results-toolbar">
+              <div>
+                <span class="toolbar-kicker" id="result-kicker">IMAGE RUNS</span>
+                <strong id="result-title">最新作品</strong>
+              </div>
+              <div class="job-indicator" id="job-indicator" hidden>
+                <span class="spinner"></span>
+                <span id="job-copy">正在生成</span>
+              </div>
             </div>
 
             <div class="gallery" id="gallery" aria-live="polite">
               <div class="gallery-empty" id="gallery-empty">
-                <div class="orb" aria-hidden="true"></div>
-                <p>生成结果会出现在这里</p>
+                <div class="empty-visual" aria-hidden="true"><span></span></div>
+                <h3>还没有作品</h3>
+                <p id="empty-copy">描述画面，Gemini 会把原图保存在本机。</p>
               </div>
             </div>
           </div>
+
+          <aside class="inspector" aria-label="生成参数">
+            <form id="generation-form">
+              <div class="inspector-heading">
+                <span class="kind-mark" id="kind-mark">IMG</span>
+                <div>
+                  <p class="eyebrow">NEW GENERATION</p>
+                  <h3 id="form-title">生成图片</h3>
+                </div>
+              </div>
+
+              <label class="field-label" for="generation-prompt">描述</label>
+              <textarea
+                id="generation-prompt"
+                maxlength="4000"
+                placeholder="雨夜中的上海街巷，电影感灯光，路面积水映出霓虹…"
+                required
+              ></textarea>
+
+              <div class="control-group" id="aspect-control">
+                <span class="field-label">画幅</span>
+                <div class="segmented" id="aspect-options">
+                  <button class="is-active" data-value="auto" type="button">自动</button>
+                  <button data-value="1:1" type="button">1:1</button>
+                  <button data-value="16:9" type="button">16:9</button>
+                  <button data-value="9:16" type="button">9:16</button>
+                </div>
+              </div>
+
+              <div class="control-group" id="batch-control">
+                <span class="field-label">生成数量</span>
+                <div class="stepper" aria-label="生成数量">
+                  <button id="batch-down" type="button" aria-label="减少">−</button>
+                  <strong id="batch-value">1</strong>
+                  <span>/ 4</span>
+                  <button id="batch-up" type="button" aria-label="增加">＋</button>
+                </div>
+              </div>
+
+              <div class="run-note">
+                <span></span>
+                <p id="run-note">每张图独立生成，最多同时处理 2 个请求。</p>
+              </div>
+
+              <button class="primary-button generate-button" type="submit">
+                <span id="generate-label">生成 1 张图片</span>
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M3 12h18" /></svg>
+              </button>
+            </form>
+          </aside>
+        </section>
+
+        <section class="view" id="library-view" aria-label="本地资源库">
+          <div class="library-head">
+            <div>
+              <p class="eyebrow">LOCAL ARCHIVE</p>
+              <h3>生成记录</h3>
+              <p>原始文件与提示词只保存在这台电脑。</p>
+            </div>
+            <div class="library-filters" role="group" aria-label="资源类型">
+              <button class="is-active" data-filter="all" type="button">全部</button>
+              <button data-filter="image" type="button">图片</button>
+              <button data-filter="video" type="button">视频</button>
+              <button data-filter="audio" type="button">音频</button>
+            </div>
+          </div>
+          <div class="library-grid" id="library-grid"></div>
         </section>
       </section>
     </main>
 
+    <div class="selection-bar" id="selection-bar" hidden>
+      <span><strong id="selection-count">0</strong> 项已选择</span>
+      <button id="clear-selection" type="button">取消</button>
+      <button class="primary-button" id="download-selection" type="button">下载 ZIP</button>
+    </div>
+
+    <dialog class="viewer" id="viewer">
+      <button class="viewer-close" id="viewer-close" type="button" aria-label="关闭">×</button>
+      <div class="viewer-media" id="viewer-media"></div>
+      <aside class="viewer-info">
+        <p class="eyebrow" id="viewer-kind">IMAGE</p>
+        <h3>作品详情</h3>
+        <p id="viewer-prompt"></p>
+        <dl>
+          <div><dt>模型</dt><dd id="viewer-model"></dd></div>
+          <div><dt>创建</dt><dd id="viewer-time"></dd></div>
+        </dl>
+        <div class="viewer-actions">
+          <button class="quiet-button" id="reuse-prompt" type="button">复用提示词</button>
+          <a class="primary-button" id="viewer-download" href="#">下载原文件</a>
+        </div>
+      </aside>
+    </dialog>
+
     <div class="toast" id="toast" role="status"></div>
-    <script src="/static/app.js" defer></script>
+    <script type="module" src="/static/app.js"></script>
   </body>
 </html>

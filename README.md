@@ -768,7 +768,7 @@ A standalone CLI (`cli.py`) is included for interacting with Gemini from the ter
 
 ## Local Web App
 
-This repository includes a small local-only web interface for multi-turn chat and image generation. It reads the logged-in browser session through the optional `browser` dependency and respects `GEMINI_PROXY`, `HTTPS_PROXY`, or `HTTP_PROXY` for outbound requests.
+This repository includes **Gemini Atelier**, a local-only media studio built on the same browser session as the Python client. It supports multi-turn chat, original-size image downloads, image batches, long-running video/audio jobs, a persistent local asset gallery, and ZIP downloads. It respects `GEMINI_PROXY`, `HTTPS_PROXY`, or `HTTP_PROXY` for every outbound Gemini and media request.
 
 ```sh
 pip install -e ".[browser,web]"
@@ -781,6 +781,17 @@ python web_app.py
 The scripts and web app load the complete Google cookie set from the selected browser directly into memory. They never print or save cookie values. Set `GEMINI_BROWSER=chrome` (or `safari`, `firefox`, and so on) to force a browser; otherwise the first complete session is selected automatically.
 
 Open <http://127.0.0.1:8000>. The service listens on localhost by default and requires an outbound proxy. Set `WEB_HOST` or `WEB_PORT` only when you intentionally need a different bind address.
+
+Generated files and their local `assets.json` manifest are stored under `web/generated/`. That directory is ignored by Git, as are cookie files and local environment files. Image batches accept 1–4 results and run at most two provider requests concurrently. Video and audio jobs run in the background, so the page polls `/api/jobs/{job_id}` instead of holding one HTTP request open.
+
+The local web API includes:
+
+- `POST /api/chat` for multi-turn text chat.
+- `POST /api/generations` for queued image, video, and audio generation.
+- `GET /api/jobs/{job_id}` for generation progress and partial results.
+- `GET /api/assets` for the persistent local gallery.
+- `GET /api/assets/{asset_id}/download` for the saved original file.
+- `POST /api/assets/download-zip` for downloading selected originals together.
 
 ### Cookie Setup
 
