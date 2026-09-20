@@ -368,7 +368,11 @@ function createAssetCard(asset) {
   download.className = "asset-download";
   download.href = asset.download_url;
   download.textContent = "↓";
-  download.setAttribute("aria-label", "下载原文件");
+  download.setAttribute("aria-label", asset.source_url ? "打开 Gemini 原图" : "下载本地文件");
+  if (asset.source_url) {
+    download.target = "_blank";
+    download.rel = "noopener";
+  }
 
   const meta = document.createElement("div");
   meta.className = "asset-meta";
@@ -555,6 +559,9 @@ function openViewer(asset) {
   elements.viewerModel.textContent = asset.model;
   elements.viewerTime.textContent = formattedTime(asset.created_at);
   elements.viewerDownload.href = asset.download_url;
+  elements.viewerDownload.textContent = asset.source_url ? "打开 Gemini 原图" : "下载原文件";
+  elements.viewerDownload.target = asset.source_url ? "_blank" : "";
+  elements.viewerDownload.rel = asset.source_url ? "noopener" : "";
   elements.viewerMedia.replaceChildren(mediaElement(asset, { detailed: true }));
   elements.viewer.showModal();
 }

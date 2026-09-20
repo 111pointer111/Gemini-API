@@ -157,7 +157,11 @@ class WebAppTest(unittest.IsolatedAsyncioTestCase):
         assert job.completed == 3
         assert len(job.asset_ids) == 3
         assert self.client.generate_content.await_count == 3
-        assert len(self.runtime.list_assets("image")) == 3
+        assets = self.runtime.list_assets("image")
+        assert len(assets) == 3
+        assert all(asset["source_url"].startswith("https://") for asset in assets)
+        assert all(asset["download_url"] == asset["source_url"] for asset in assets)
+        assert all(asset["local_download_url"].startswith("/api/assets/") for asset in assets)
         assert self.runtime.manifest_path.is_file()
 
     async def test_video_and_audio_jobs_save_the_expected_media_type(self) -> None:

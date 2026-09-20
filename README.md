@@ -782,7 +782,7 @@ The scripts and web app load the complete Google cookie set from the selected br
 
 Open <http://127.0.0.1:8000>. The service listens on localhost by default and requires an outbound proxy. Set `WEB_HOST` or `WEB_PORT` only when you intentionally need a different bind address.
 
-Generated files and their local `assets.json` manifest are stored under `web/generated/`. That directory is ignored by Git, as are cookie files and local environment files. Image batches accept 1–4 results and run at most two provider requests concurrently. Video and audio jobs run in the background, so the page polls `/api/jobs/{job_id}` instead of holding one HTTP request open.
+Generated files and their local `assets.json` manifest are stored under `web/generated/`. That directory is ignored by Git, as are cookie files and local environment files. Image batches accept 1–4 results and run at most two provider requests concurrently. A generated image keeps Gemini's resolved full-size `googleusercontent.com` URL for single-image downloads; the local original remains available for previews and ZIP archives. Video and audio jobs run in the background, so the page polls `/api/jobs/{job_id}` instead of holding one HTTP request open.
 
 The local web API includes:
 

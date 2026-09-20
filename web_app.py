@@ -95,9 +95,16 @@ class AssetRecord:
     created_at: str
     mime_type: str
     preview_filename: str | None = None
+    source_url: str | None = None
 
     def public(self) -> dict[str, Any]:
         """Return browser-safe metadata without exposing local paths."""
+        local_download_url = f"/api/assets/{self.id}/download"
+        source_url = (
+            self.source_url
+            if self.kind == "image" and self.source_url and is_google_image_url(self.source_url)
+            else None
+        )
         return {
             "id": self.id,
             "kind": self.kind,
@@ -109,7 +116,9 @@ class AssetRecord:
             "preview_url": (
                 f"/generated/{self.preview_filename}" if self.preview_filename else None
             ),
-            "download_url": f"/api/assets/{self.id}/download",
+            "source_url": source_url,
+            "download_url": source_url or local_download_url,
+            "local_download_url": local_download_url,
         }
 
 
@@ -243,6 +252,7 @@ class WebRuntime:
         prompt: str,
         model: str,
         preview_path: Path | None = None,
+        source_url: str | None = None,
     ) -> AssetRecord:
         """Add a downloaded file to the persistent local gallery."""
         asset = AssetRecord(
@@ -254,6 +264,7 @@ class WebRuntime:
             created_at=datetime.now(UTC).isoformat(),
             mime_type=mimetypes.guess_type(path.name)[0] or "application/octet-stream",
             preview_filename=preview_path.name if preview_path and preview_path.is_file() else None,
+            source_url=source_url,
         )
         async with self._asset_lock:
             self.assets[asset.id] = asset
@@ -331,6 +342,7 @@ class WebRuntime:
             path=saved_path,
             prompt=job.prompt,
             model=job.model,
+            source_url=output.images[0].url,
         )
 
     async def _generate_timed_media(self, job: GenerationJob) -> AssetRecord:
