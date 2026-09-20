@@ -49,10 +49,11 @@
           <select id="model-select" aria-label="选择模型">
             <option value="gemini-pro">Gemini Pro</option>
           </select>
-          <div class="connection-row">
+          <button class="connection-row" id="auth-open" type="button" aria-label="连接设置">
             <span class="status-dot" id="status-dot"></span>
             <span id="status-text">正在连接</span>
-          </div>
+            <span class="connection-action">设置</span>
+          </button>
         </div>
       </aside>
 
@@ -190,6 +191,41 @@
       <button id="clear-selection" type="button">取消</button>
       <button class="primary-button" id="download-selection" type="button">下载 ZIP</button>
     </div>
+
+    <dialog class="auth-dialog" id="auth-dialog">
+      <button class="dialog-close" id="auth-close" type="button" aria-label="关闭">×</button>
+      <section class="auth-guide">
+        <p class="eyebrow">CONNECTION RECOVERY</p>
+        <h3>重新连接 Gemini</h3>
+        <p>当状态显示 UNAUTHENTICATED 时，复制浏览器里正在使用的完整 Cookie。</p>
+        <ol>
+          <li>在 Chrome 打开 <a href="https://gemini.google.com" target="_blank" rel="noopener">gemini.google.com</a> 并确认网页可正常对话。</li>
+          <li>按 <kbd>⌥⌘I</kbd> 打开开发者工具，进入 <strong>Network</strong>。</li>
+          <li>刷新页面，点击一个 <code>batchexecute</code> 请求。</li>
+          <li>在 <strong>Headers → Request Headers</strong> 找到 <code>Cookie</code>，复制冒号后面的完整内容。</li>
+          <li>粘贴到右侧并测试。不要复制 <code>Set-Cookie</code>。</li>
+        </ol>
+        <p class="auth-security">Cookie 等同登录凭证。它只会保存到本机权限为 0600 的 Git-ignored 文件，不会显示或上传到仓库。</p>
+      </section>
+      <form class="auth-form" id="auth-form">
+        <label for="cookie-input">完整 Cookie</label>
+        <textarea
+          id="cookie-input"
+          rows="12"
+          maxlength="100000"
+          autocomplete="off"
+          autocapitalize="off"
+          spellcheck="false"
+          placeholder="__Secure-1PSID=...; __Secure-1PSIDTS=...; SID=..."
+          required
+        ></textarea>
+        <p class="auth-result" id="auth-result" aria-live="polite">保存前会实时连接 Gemini 验证，不可用的 Cookie 不会替换当前配置。</p>
+        <div class="auth-actions">
+          <button class="quiet-button" id="auth-cancel" type="button">取消</button>
+          <button class="primary-button" id="auth-submit" type="submit">测试并保存</button>
+        </div>
+      </form>
+    </dialog>
 
     <dialog class="viewer" id="viewer">
       <button class="viewer-close" id="viewer-close" type="button" aria-label="关闭">×</button>

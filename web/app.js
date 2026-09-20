@@ -47,6 +47,7 @@ const state = {
   activeJobs: new Map(),
   libraryFilter: "all",
   viewerAsset: null,
+  authenticated: false,
 };
 
 const elements = {
@@ -60,6 +61,14 @@ const elements = {
   modelSelect: document.querySelector("#model-select"),
   statusDot: document.querySelector("#status-dot"),
   statusText: document.querySelector("#status-text"),
+  authOpen: document.querySelector("#auth-open"),
+  authDialog: document.querySelector("#auth-dialog"),
+  authClose: document.querySelector("#auth-close"),
+  authCancel: document.querySelector("#auth-cancel"),
+  authForm: document.querySelector("#auth-form"),
+  authSubmit: document.querySelector("#auth-submit"),
+  cookieInput: document.querySelector("#cookie-input"),
+  authResult: document.querySelector("#auth-result"),
   conversation: document.querySelector("#conversation"),
   chatForm: document.querySelector("#chat-form"),
   chatInput: document.querySelector("#chat-input"),
@@ -141,16 +150,68 @@ function updateModelOptions(models) {
   elements.modelSelect.value = preferred.name;
 }
 
+function applyConnectionStatus(status) {
+  state.authenticated = Boolean(status.ready);
+  elements.statusDot.classList.toggle("is-ready", state.authenticated);
+  elements.statusDot.classList.toggle("is-error", !state.authenticated);
+  elements.authOpen.classList.toggle("needs-auth", !state.authenticated);
+  const source = status.cookie_source === "manual" ? "手动 Cookie" : (status.cookie_source ?? "未配置");
+  elements.statusText.textContent = state.authenticated
+    ? `${status.account_status} · ${source}`
+    : `${status.account_status} · 重新连接`;
+  elements.chatForm.querySelector("button[type='submit']").disabled = !state.authenticated;
+  elements.generationForm.querySelector("button[type='submit']").disabled = !state.authenticated;
+  updateModelOptions(status.models);
+}
+
 async function loadStatus() {
   try {
     const status = await requestJson("/api/status");
-    elements.statusDot.classList.add("is-ready");
-    elements.statusText.textContent = `${status.account_status} · ${status.cookie_browser ?? "Browser"}`;
-    updateModelOptions(status.models);
+    applyConnectionStatus(status);
+    if (!status.ready) showToast("Gemini 登录已失效，请打开连接设置更新 Cookie。", "error");
   } catch (error) {
+    state.authenticated = false;
     elements.statusDot.classList.add("is-error");
+    elements.authOpen.classList.add("needs-auth");
     elements.statusText.textContent = "连接失败";
+    elements.chatForm.querySelector("button[type='submit']").disabled = true;
+    elements.generationForm.querySelector("button[type='submit']").disabled = true;
     showToast(error.message, "error");
+  }
+}
+
+function openAuthDialog() {
+  elements.authResult.textContent = "保存前会实时连接 Gemini 验证，不可用的 Cookie 不会替换当前配置。";
+  elements.authResult.className = "auth-result";
+  elements.authDialog.showModal();
+  window.requestAnimationFrame(() => elements.cookieInput.focus());
+}
+
+async function submitCookieConfig(event) {
+  event.preventDefault();
+  const cookieHeader = elements.cookieInput.value.trim();
+  if (!cookieHeader) return;
+  elements.authSubmit.disabled = true;
+  elements.authSubmit.textContent = "正在验证…";
+  elements.authResult.className = "auth-result";
+  elements.authResult.textContent = "正在通过代理连接 Gemini，并检查账号状态与可用模型。";
+  try {
+    const status = await requestJson("/api/auth/cookies", {
+      method: "POST",
+      body: JSON.stringify({ cookie_header: cookieHeader }),
+    });
+    applyConnectionStatus(status);
+    elements.cookieInput.value = "";
+    elements.authResult.className = "auth-result is-success";
+    elements.authResult.textContent = "连接成功，新的 Cookie 已保存并实时生效。";
+    showToast("Gemini 已重新连接");
+    window.setTimeout(() => elements.authDialog.close(), 700);
+  } catch (error) {
+    elements.authResult.className = "auth-result is-error";
+    elements.authResult.textContent = error.message;
+  } finally {
+    elements.authSubmit.disabled = false;
+    elements.authSubmit.textContent = "测试并保存";
   }
 }
 
@@ -286,7 +347,7 @@ async function submitChat(event) {
     showToast(error.message, "error");
   } finally {
     state.chatBusy = false;
-    elements.chatForm.querySelector("button[type='submit']").disabled = false;
+    elements.chatForm.querySelector("button[type='submit']").disabled = !state.authenticated;
     elements.chatInput.focus();
   }
 }
@@ -368,11 +429,7 @@ function createAssetCard(asset) {
   download.className = "asset-download";
   download.href = asset.download_url;
   download.textContent = "↓";
-  download.setAttribute("aria-label", asset.source_url ? "打开 Gemini 原图" : "下载本地文件");
-  if (asset.source_url) {
-    download.target = "_blank";
-    download.rel = "noopener";
-  }
+  download.setAttribute("aria-label", asset.source_url ? "下载 Gemini 原图" : "下载本地文件");
 
   const meta = document.createElement("div");
   meta.className = "asset-meta";
@@ -505,7 +562,7 @@ async function submitGeneration(event) {
   } catch (error) {
     showToast(error.message, "error");
   } finally {
-    button.disabled = false;
+    button.disabled = !state.authenticated;
   }
 }
 
@@ -559,9 +616,9 @@ function openViewer(asset) {
   elements.viewerModel.textContent = asset.model;
   elements.viewerTime.textContent = formattedTime(asset.created_at);
   elements.viewerDownload.href = asset.download_url;
-  elements.viewerDownload.textContent = asset.source_url ? "打开 Gemini 原图" : "下载原文件";
-  elements.viewerDownload.target = asset.source_url ? "_blank" : "";
-  elements.viewerDownload.rel = asset.source_url ? "noopener" : "";
+  elements.viewerDownload.textContent = asset.source_url ? "下载 Gemini 原图" : "下载原文件";
+  elements.viewerDownload.removeAttribute("target");
+  elements.viewerDownload.removeAttribute("rel");
   elements.viewerMedia.replaceChildren(mediaElement(asset, { detailed: true }));
   elements.viewer.showModal();
 }
@@ -587,9 +644,17 @@ elements.clearSelection.addEventListener("click", clearSelection);
 elements.downloadSelection.addEventListener("click", downloadSelection);
 elements.viewerClose.addEventListener("click", () => elements.viewer.close());
 elements.reusePrompt.addEventListener("click", reuseViewerPrompt);
+elements.authOpen.addEventListener("click", openAuthDialog);
+elements.authClose.addEventListener("click", () => elements.authDialog.close());
+elements.authCancel.addEventListener("click", () => elements.authDialog.close());
+elements.authForm.addEventListener("submit", submitCookieConfig);
 
 elements.viewer.addEventListener("click", (event) => {
   if (event.target === elements.viewer) elements.viewer.close();
+});
+
+elements.authDialog.addEventListener("click", (event) => {
+  if (event.target === elements.authDialog) elements.authDialog.close();
 });
 
 elements.modelSelect.addEventListener("change", () => {

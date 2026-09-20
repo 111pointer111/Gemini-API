@@ -10,7 +10,7 @@ import os
 import uuid
 import zipfile
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,18 +19,27 @@ from urllib.parse import urlparse
 
 import uvicorn
 from curl_cffi import CurlFollow, CurlHttpVersion
-from curl_cffi.requests import AsyncSession
+from curl_cffi.requests import AsyncSession, Cookies
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, model_validator
 
 from gemini_webapi import ChatSession, GeminiClient, GeneratedImage, Image
+from gemini_webapi.constants import AccountStatus, Headers
 from gemini_webapi.utils.browser_session import load_full_browser_cookie_session
+from gemini_webapi.utils.cookie_config import (
+    cookies_from_mapping,
+    cookies_to_mapping,
+    load_cookie_config,
+    parse_cookie_header,
+    save_cookie_config,
+)
 
 ROOT_DIR = Path(__file__).resolve().parent
 WEB_DIR = ROOT_DIR / "web"
 GENERATED_DIR = WEB_DIR / "generated"
+COOKIE_CONFIG_PATH = ROOT_DIR / ".gemini-cookie-session.json"
 DEFAULT_MODEL = "gemini-pro"
 MAX_IMAGE_BATCH = 4
 GenerationKind = Literal["image", "video", "audio"]
@@ -74,6 +83,12 @@ class AssetSelection(BaseModel):
     asset_ids: Annotated[list[str], Field(min_length=1, max_length=50)]
 
 
+class CookieConfigRequest(BaseModel):
+    """A complete Cookie request header copied from Gemini in DevTools."""
+
+    cookie_header: Annotated[str, Field(min_length=20, max_length=100_000)]
+
+
 @dataclass(slots=True)
 class SessionState:
     """A Gemini conversation and the lock protecting its turn order."""
@@ -105,6 +120,7 @@ class AssetRecord:
             if self.kind == "image" and self.source_url and is_google_image_url(self.source_url)
             else None
         )
+        original_download_url = f"/api/assets/{self.id}/original" if source_url else None
         return {
             "id": self.id,
             "kind": self.kind,
@@ -117,7 +133,7 @@ class AssetRecord:
                 f"/generated/{self.preview_filename}" if self.preview_filename else None
             ),
             "source_url": source_url,
-            "download_url": source_url or local_download_url,
+            "download_url": original_download_url or local_download_url,
             "local_download_url": local_download_url,
         }
 
@@ -158,8 +174,17 @@ class GenerationJob:
 class WebRuntime:
     """Mutable local state shared by the FastAPI routes."""
 
-    def __init__(self, client: GeminiClient, generated_dir: Path = GENERATED_DIR) -> None:
+    def __init__(
+        self,
+        client: GeminiClient,
+        generated_dir: Path = GENERATED_DIR,
+        *,
+        cookie_source: str = "browser",
+        cookie_config_path: Path = COOKIE_CONFIG_PATH,
+    ) -> None:
         self.client = client
+        self.cookie_source = cookie_source
+        self.cookie_config_path = cookie_config_path
         self.generated_dir = generated_dir
         self.generated_dir.mkdir(parents=True, exist_ok=True)
         self.manifest_path = self.generated_dir / "assets.json"
@@ -168,7 +193,11 @@ class WebRuntime:
         self.tasks: dict[str, asyncio.Task[None]] = {}
         self.assets = self._load_assets()
         self._asset_lock = asyncio.Lock()
+        self._client_swap_lock = asyncio.Lock()
         self._generation_slots = asyncio.Semaphore(2)
+        self._cookie_persist_task: asyncio.Task[None] | None = None
+        if cookie_source == "manual":
+            self._start_cookie_persistence()
 
     def get_session(self, session_id: str | None, model: str) -> tuple[str, SessionState]:
         """Return an existing conversation or create a new one."""
@@ -196,11 +225,56 @@ class WebRuntime:
 
     async def close(self) -> None:
         """Cancel unfinished local tasks before shutting down."""
+        if self._cookie_persist_task:
+            self._cookie_persist_task.cancel()
+            await asyncio.gather(self._cookie_persist_task, return_exceptions=True)
+            self._cookie_persist_task = None
+        with suppress(OSError, ValueError):
+            await self.persist_manual_cookies()
         pending = [task for task in self.tasks.values() if not task.done()]
         for task in pending:
             task.cancel()
         if pending:
             await asyncio.gather(*pending, return_exceptions=True)
+        await self.client.close()
+
+    def has_active_jobs(self) -> bool:
+        """Return whether a media generation still owns the current client."""
+        return any(not task.done() for task in self.tasks.values())
+
+    async def replace_client(self, client: GeminiClient) -> None:
+        """Hot-swap a validated client and reset sessions tied to the old one."""
+        if self.has_active_jobs():
+            raise RuntimeError("请等待当前生成任务结束后再重新配置 Cookie。")
+        async with self._client_swap_lock:
+            previous = self.client
+            self.client = client
+            self.cookie_source = "manual"
+            self.sessions.clear()
+            self._start_cookie_persistence()
+        with suppress(Exception):
+            await previous.close()
+
+    async def persist_manual_cookies(self) -> None:
+        """Persist the latest auto-refreshed manual session without exposing values."""
+        if self.cookie_source != "manual":
+            return
+        values = cookies_to_mapping(self.client.cookies)
+        await asyncio.to_thread(save_cookie_config, self.cookie_config_path, values)
+
+    def _start_cookie_persistence(self) -> None:
+        """Start one periodic persistence loop for refreshed manual cookies."""
+        if self._cookie_persist_task is None or self._cookie_persist_task.done():
+            self._cookie_persist_task = asyncio.create_task(self._persist_cookie_loop())
+
+    async def _persist_cookie_loop(self) -> None:
+        """Periodically keep the on-disk session aligned with auto-refresh."""
+        while True:
+            await asyncio.sleep(300)
+            try:
+                await self.persist_manual_cookies()
+            except (OSError, ValueError):
+                continue
 
     def list_assets(self, kind: GenerationKind | None = None) -> list[dict[str, Any]]:
         """Return newest-first browser-safe asset records."""
@@ -330,7 +404,7 @@ class WebRuntime:
             )
             if not output.images:
                 raise ValueError(output.text or f"Image {index + 1} was not returned.")
-            filename = f"{job.id}-{index + 1}.png"
+            filename = f"{job.id}-{index + 1}"
             saved_path = await save_generated_image(
                 output.images[0],
                 self.client,
@@ -448,6 +522,18 @@ async def save_generated_image(
         )
 
 
+async def initialize_gemini_client(
+    proxy: str,
+    cookies: Cookies | dict[str, str] | None = None,
+) -> GeminiClient:
+    """Initialize one Gemini client with optional preloaded cookies."""
+    client = GeminiClient(proxy=proxy)
+    if cookies is not None:
+        client.cookies = cookies
+    await client.init(timeout=60, auto_refresh=True, verbose=False)
+    return client
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Initialize one long-lived Gemini client for the local web app."""
@@ -456,24 +542,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if not proxy:
         raise RuntimeError("Proxy required. Set GEMINI_PROXY or HTTPS_PROXY before startup.")
 
-    browser = os.getenv("GEMINI_BROWSER")
-    browser_session = await asyncio.to_thread(
-        load_full_browser_cookie_session,
-        browser,
-        verbose=False,
-    )
-    client = GeminiClient(proxy=proxy)
-    if browser_session is not None:
-        client.cookies = browser_session.cookies
-    await client.init(timeout=60, auto_refresh=True, verbose=False)
-    runtime = WebRuntime(client)
+    saved_cookies = await asyncio.to_thread(load_cookie_config, COOKIE_CONFIG_PATH)
+    if saved_cookies:
+        cookie_source = "manual"
+        client = await initialize_gemini_client(proxy, saved_cookies)
+    else:
+        browser = os.getenv("GEMINI_BROWSER")
+        browser_session = await asyncio.to_thread(
+            load_full_browser_cookie_session,
+            browser,
+            verbose=False,
+        )
+        browser_cookies = browser_session.cookies if browser_session else None
+        cookie_source = browser_session.browser if browser_session else "guest"
+        client = await initialize_gemini_client(proxy, browser_cookies)
+
+    if saved_cookies and client.account_status != AccountStatus.AVAILABLE:
+        await client.close()
+        browser = os.getenv("GEMINI_BROWSER")
+        browser_session = await asyncio.to_thread(
+            load_full_browser_cookie_session,
+            browser,
+            verbose=False,
+        )
+        browser_cookies = browser_session.cookies if browser_session else None
+        cookie_source = browser_session.browser if browser_session else "guest"
+        client = await initialize_gemini_client(proxy, browser_cookies)
+
+    runtime = WebRuntime(client, cookie_source=cookie_source)
     app.state.runtime = runtime
-    app.state.cookie_browser = browser_session.browser if browser_session else None
     try:
         yield
     finally:
         await runtime.close()
-        await client.close()
 
 
 app = FastAPI(title="Gemini Atelier", version="2.0.0", lifespan=lifespan)
@@ -487,28 +588,89 @@ def runtime_from(request: Request) -> WebRuntime:
     return runtime
 
 
-@app.get("/api/status")
-async def status(request: Request) -> dict[str, Any]:
-    """Return current account and model availability without exposing credentials."""
-    runtime = runtime_from(request)
+def ensure_authenticated(runtime: WebRuntime) -> None:
+    """Reject generation calls when the current session is not usable."""
+    if runtime.client.account_status != AccountStatus.AVAILABLE:
+        raise HTTPException(
+            status_code=401,
+            detail="Gemini Cookie 已失效, 请在连接设置中粘贴新的完整 Cookie。",
+        )
+
+
+def status_payload(runtime: WebRuntime) -> dict[str, Any]:
+    """Build the credential-safe connection status returned to the browser."""
     models = [
         {"name": model.model_name, "label": model.display_name}
         for model in runtime.client.list_models() or []
         if model.is_available
     ]
+    available = runtime.client.account_status == AccountStatus.AVAILABLE
     return {
-        "ready": True,
+        "ready": available,
         "account_status": runtime.client.account_status.name,
         "proxy_enabled": configured_proxy() is not None,
-        "cookie_browser": getattr(request.app.state, "cookie_browser", None),
+        "cookie_source": runtime.cookie_source,
+        "saved_cookie_config": runtime.cookie_config_path.is_file(),
         "models": models,
     }
+
+
+@app.get("/api/status")
+async def status(request: Request) -> dict[str, Any]:
+    """Return current account and model availability without exposing credentials."""
+    runtime = runtime_from(request)
+    return status_payload(runtime)
+
+
+@app.post("/api/auth/cookies")
+async def configure_cookies(payload: CookieConfigRequest, request: Request) -> dict[str, Any]:
+    """Validate, persist, and hot-apply a complete Google Cookie header."""
+    runtime = runtime_from(request)
+    if runtime.has_active_jobs():
+        raise HTTPException(status_code=409, detail="请等待当前生成任务结束后再配置 Cookie。")
+    try:
+        values = parse_cookie_header(payload.cookie_header)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    proxy = configured_proxy()
+    if not proxy:
+        raise HTTPException(status_code=503, detail="未配置出站代理, 无法验证 Cookie。")
+
+    candidate: GeminiClient | None = None
+    try:
+        candidate = await initialize_gemini_client(proxy, cookies_from_mapping(values))
+        if candidate.account_status != AccountStatus.AVAILABLE:
+            account_status = candidate.account_status.name
+            await candidate.close()
+            raise HTTPException(
+                status_code=401,
+                detail=f"Cookie 验证失败: Gemini 返回 {account_status}。请重新复制完整 Cookie。",
+            )
+        refreshed_values = cookies_to_mapping(candidate.cookies)
+        await asyncio.to_thread(save_cookie_config, runtime.cookie_config_path, refreshed_values)
+        await runtime.replace_client(candidate)
+    except HTTPException:
+        raise
+    except RuntimeError as exc:
+        if candidate is not None:
+            await candidate.close()
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        if candidate is not None:
+            await candidate.close()
+        raise HTTPException(
+            status_code=502,
+            detail="Cookie 连接测试失败, 请检查代理、Cookie 是否完整以及 Gemini 网页是否可用。",
+        ) from exc
+    return status_payload(runtime)
 
 
 @app.post("/api/chat")
 async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
     """Send one turn while preserving per-browser conversation context."""
     runtime = runtime_from(request)
+    ensure_authenticated(runtime)
     session_id, state = runtime.get_session(payload.session_id, payload.model)
     try:
         async with state.lock:
@@ -527,6 +689,7 @@ async def chat(payload: ChatRequest, request: Request) -> dict[str, Any]:
 async def create_generation(payload: GenerationRequest, request: Request) -> dict[str, Any]:
     """Queue a media generation and immediately return its job snapshot."""
     runtime = runtime_from(request)
+    ensure_authenticated(runtime)
     job = runtime.submit_generation(payload)
     return job.public(runtime.assets)
 
@@ -569,6 +732,45 @@ async def download_asset(asset_id: str, request: Request) -> FileResponse:
     )
 
 
+@app.get("/api/assets/{asset_id}/original")
+async def download_original_asset(asset_id: str, request: Request) -> Response:
+    """Proxy one Gemini full-size image with credentials and a download header."""
+    runtime = runtime_from(request)
+    ensure_authenticated(runtime)
+    asset = runtime.assets.get(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found.")
+    if asset.kind != "image" or not asset.source_url:
+        raise HTTPException(status_code=404, detail="This asset has no saved Gemini original URL.")
+    if not is_google_image_url(asset.source_url):
+        raise HTTPException(status_code=422, detail="The saved original URL is not trusted.")
+
+    try:
+        async with media_download_session(runtime.client) as media_client:
+            response = await media_client.get(asset.source_url, headers=Headers.REFERER.value)
+        response.raise_for_status()
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="Gemini 原图链接已失效或下载失败, 请重新生成后再试。",
+        ) from exc
+
+    content_type = response.headers.get("content-type", "").split(";", 1)[0].strip().lower()
+    if not content_type.startswith("image/"):
+        raise HTTPException(status_code=502, detail="Gemini 返回的内容不是图片。")
+    extension = mimetypes.guess_extension(content_type) or Path(asset.filename).suffix or ".img"
+    filename = f"gemini-original-{asset.id[:8]}{extension}"
+    return Response(
+        content=response.content,
+        media_type=content_type,
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
+
+
 @app.post("/api/assets/download-zip")
 async def download_assets_zip(payload: AssetSelection, request: Request) -> Response:
     """Create a ZIP archive containing selected original files."""
@@ -602,6 +804,7 @@ async def download_assets_zip(payload: AssetSelection, request: Request) -> Resp
 async def generate_image(payload: ImageRequest, request: Request) -> dict[str, Any]:
     """Keep the original synchronous image endpoint for existing clients."""
     runtime = runtime_from(request)
+    ensure_authenticated(runtime)
     prompt = f"Generate an image from this description. Do not search the web: {payload.prompt}"
     try:
         output = await runtime.client.generate_content(
@@ -611,7 +814,7 @@ async def generate_image(payload: ImageRequest, request: Request) -> dict[str, A
         )
         saved_images: list[str] = []
         for index, image in enumerate(output.images[:MAX_IMAGE_BATCH]):
-            filename = f"{uuid.uuid4().hex}-{index}.png"
+            filename = f"{uuid.uuid4().hex}-{index}"
             saved_path = await save_generated_image(
                 image,
                 runtime.client,
