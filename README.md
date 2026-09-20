@@ -766,6 +766,22 @@ set_log_level("DEBUG")
 
 A standalone CLI (`cli.py`) is included for interacting with Gemini from the terminal. It supports single-turn questions, multi-turn chat, deep research, image download, and account diagnostics.
 
+## Local Web App
+
+This repository includes a small local-only web interface for multi-turn chat and image generation. It reads the logged-in browser session through the optional `browser` dependency and respects `GEMINI_PROXY`, `HTTPS_PROXY`, or `HTTP_PROXY` for outbound requests.
+
+```sh
+pip install -e ".[browser,web]"
+export GEMINI_PROXY="http://proxy-host:port"
+python scripts/check_browser_cookies.py --show-names
+python scripts/probe_browser_session.py --browser chrome
+python web_app.py
+```
+
+The scripts and web app load the complete Google cookie set from the selected browser directly into memory. They never print or save cookie values. Set `GEMINI_BROWSER=chrome` (or `safari`, `firefox`, and so on) to force a browser; otherwise the first complete session is selected automatically.
+
+Open <http://127.0.0.1:8000>. The service listens on localhost by default and requires an outbound proxy. Set `WEB_HOST` or `WEB_PORT` only when you intentionally need a different bind address.
+
 ### Cookie Setup
 
 Export your cookies from [gemini.google.com](https://gemini.google.com) and save them as a JSON file. The CLI supports multiple formats:

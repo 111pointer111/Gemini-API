@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#111218" />
+    <title>Gemini Canvas</title>
+    <link rel="icon" href="/assets/favicon.png" />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <aside class="sidebar" aria-label="应用导航">
+        <div class="brand-block">
+          <div class="brand-mark" aria-hidden="true">✦</div>
+          <div>
+            <p class="eyebrow">LOCAL GEMINI</p>
+            <h1>Canvas</h1>
+          </div>
+        </div>
+
+        <nav class="mode-nav" aria-label="功能选择">
+          <button class="mode-button is-active" data-mode="chat" type="button">
+            <span>01</span>
+            <strong>对话</strong>
+            <small>连续上下文</small>
+          </button>
+          <button class="mode-button" data-mode="image" type="button">
+            <span>02</span>
+            <strong>生成图片</strong>
+            <small>Gemini Web</small>
+          </button>
+        </nav>
+
+        <div class="sidebar-footer">
+          <label for="model-select">当前模型</label>
+          <select id="model-select" aria-label="选择模型">
+            <option value="gemini-pro">Gemini Pro</option>
+            <option value="gemini-flash">Gemini Flash</option>
+          </select>
+          <div class="connection-row">
+            <span class="status-dot" id="status-dot"></span>
+            <span id="status-text">正在连接</span>
+          </div>
+        </div>
+      </aside>
+
+      <section class="workspace">
+        <header class="workspace-header">
+          <div>
+            <p class="eyebrow" id="view-eyebrow">CONVERSATION</p>
+            <h2 id="view-title">和 Gemini 对话</h2>
+          </div>
+          <button class="quiet-button" id="reset-chat" type="button">新对话</button>
+        </header>
+
+        <section class="view is-active" id="chat-view" aria-label="对话工作区">
+          <div class="conversation" id="conversation" aria-live="polite">
+            <div class="intro-copy" id="chat-intro">
+              <span class="intro-star" aria-hidden="true">✦</span>
+              <h3>现在可以开始了</h3>
+              <p>浏览器登录态留在本机，请求通过已配置的代理发送。</p>
+            </div>
+          </div>
+
+          <form class="composer" id="chat-form">
+            <label class="sr-only" for="chat-input">输入消息</label>
+            <textarea
+              id="chat-input"
+              rows="1"
+              maxlength="12000"
+              placeholder="输入问题，按 Enter 发送…"
+              required
+            ></textarea>
+            <button class="send-button" type="submit" aria-label="发送消息">
+              <span>发送</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M5 12h13M13 6l6 6-6 6" />
+              </svg>
+            </button>
+          </form>
+        </section>
+
+        <section class="view" id="image-view" aria-label="图片生成工作区">
+          <div class="image-stage">
+            <div class="image-prompt-block">
+              <p class="section-index">IMAGE / PROMPT</p>
+              <h3>描述你想看到的画面</h3>
+              <form id="image-form">
+                <label class="sr-only" for="image-input">图片描述</label>
+                <textarea
+                  id="image-input"
+                  maxlength="4000"
+                  placeholder="例如：雨夜里的上海街巷，电影感灯光，蓝紫色霓虹…"
+                  required
+                ></textarea>
+                <button class="generate-button" type="submit">
+                  <span>生成图片</span>
+                  <span aria-hidden="true">✦</span>
+                </button>
+              </form>
+            </div>
+
+            <div class="gallery" id="gallery" aria-live="polite">
+              <div class="gallery-empty" id="gallery-empty">
+                <div class="orb" aria-hidden="true"></div>
+                <p>生成结果会出现在这里</p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <div class="toast" id="toast" role="status"></div>
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>

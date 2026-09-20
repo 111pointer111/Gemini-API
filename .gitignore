@@ -206,4 +206,9 @@ temp/
 
 # Cookies and credentials
 cookies.json
+cookies*.json
+*.cookie.json
 *.cookies
+.gemini-cookie*
+web/generated/
+.playwright-cli/
